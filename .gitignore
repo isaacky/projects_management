@@ -1,0 +1,27 @@
+# Environment
+.env
+.env.local
+*.local
+
+# Java / Maven
+backend/target/
+*.class
+.idea/
+*.iml
+.vscode/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,291 @@
+{
+  "realm": "pmp",
+  "displayName": "PM Platform (development)",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "editUsernameAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "permanentLockout": false,
+  "passwordPolicy": "length(12)",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "clients": [
+    {
+      "clientId": "pmp-web",
+      "name": "PM Platform (web app)",
+      "description": "The browser app. Public client: authorization code flow with PKCE, no secret.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "rootUrl": "http://localhost:5173",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://localhost:8081/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:8081/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "tenant_id",
+            "claim.value": "01920000-0000-7000-8000-000000000001",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "pmp-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "pmp-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "pmo.lead",
+      "email": "pmo.lead@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "PMO",
+      "lastName": "Lead (sample)",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "requester",
+      "email": "requester@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Requester (Project Manager)",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "hod",
+      "email": "hod@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Head of Department",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "hop",
+      "email": "hop@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Head of Procurement",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "ao",
+      "email": "ao@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Accounting Officer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "po",
+      "email": "po@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Procurement Officer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "eval.engineering",
+      "email": "eval.engineering@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Evaluator (Engineering)",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "eval.finance",
+      "email": "eval.finance@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Evaluator (Finance)",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "eval.legal",
+      "email": "eval.legal@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Evaluator (Legal)",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "eval.planning",
+      "email": "eval.planning@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Evaluator (Network Planning)",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "eval.supplychain",
+      "email": "eval.supplychain@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Evaluator (Supply Chain)",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "contracts",
+      "email": "contracts@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Contract Manager",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "finance",
+      "email": "finance@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Finance Officer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "operations",
+      "email": "operations@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Sample",
+      "lastName": "Operations Officer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "pmp-dev-password",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+# Local development only. Opens the API without login and loads sample data.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/devdata
+    # Sample data uses high version numbers (V1000+). Lets a new schema migration
+    # (e.g. V2) apply on a dev database that already ran the samples.
+    out-of-order: true
+
+pmp:
+  tenant:
+    allow-header: true
+    # Used when a request has no X-Tenant-ID header: the sample "Kenya Power (pilot)" tenant.
+    dev-default-id: 01920000-0000-7000-8000-000000000001
+  sealing:
+    # Development key only. Never use this value on a server.
+    master-key: ZGV2LW9ubHktc2VhbGluZy1rZXktMzItYnl0ZXMhISE=
+  dev:
+    # Acting user when the web app's "Viewing as" switcher has not picked one.
+    default-user-id: 01920000-0000-7000-8000-000000000102
+
+logging:
+  level:
+    com.pmplatform: DEBUG

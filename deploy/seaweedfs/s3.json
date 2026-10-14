@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "pmp-app",
+      "credentials": [
+        {
+          "accessKey": "pmp",
+          "secretKey": "pmp-secret-change-me"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

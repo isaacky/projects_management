@@ -1,0 +1,315 @@
+# PM Platform on Docker Swarm (pilot). Deploy with ./deploy.sh, which loads pmp.env and checks the
+# secrets first; see RUNBOOK.md for first installation, upgrades, backups and restores.
+#
+#   https://${PMP_HOST}/        the web app (frontend nginx, which forwards /api and /analytics)
+#   https://${PMP_HOST}/auth/   Keycloak (sign-in); its admin console only from PMP_ADMIN_ALLOW_CIDR
+#
+# Nodes: label one node for the database and one for document storage (may be the same node):
+#   docker node update --label-add pmp.db=true <node>
+#   docker node update --label-add pmp.storage=true <node>
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  traefik:
+    image: traefik:v3.6   # 3.6.1 or newer: older releases cannot talk to Docker 29
+    command:
+      - --providers.swarm.endpoint=unix:///var/run/docker.sock
+      - --providers.swarm.exposedByDefault=false
+      - --providers.swarm.network=pmp_edge
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.transport.respondingTimeouts.readTimeout=600s
+      - --certificatesresolvers.le.acme.email=${PMP_ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --accesslog=true
+      - --log.level=INFO
+    ports:
+      - { target: 80, published: 80, protocol: tcp, mode: host }
+      - { target: 443, published: 443, protocol: tcp, mode: host }
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+      - ${PMP_TLS_DIR:-/srv/pmp-tls}:/etc/traefik/dynamic:ro
+    networks: [edge]
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+    logging: *logging
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pmp
+      POSTGRES_USER: pmp
+      POSTGRES_PASSWORD_FILE: /run/secrets/PMP_DB_MIGRATION_PASSWORD
+    secrets:
+      - PMP_DB_MIGRATION_PASSWORD
+      - PMP_DB_APP_PASSWORD
+      - PMP_DB_ANALYTICS_PASSWORD
+      - KC_DB_PASSWORD
+    configs:
+      - source: pg_roles
+        target: /docker-entrypoint-initdb.d/10-roles.sh
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pmp -d pmp"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      placement:
+        constraints: [node.labels.pmp.db == true]
+    logging: *logging
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.85
+    command: >
+      server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
+      -volume.max=0 -master.volumeSizeLimitMB=1024
+    secrets:
+      - source: PMP_S3_CONFIG
+        target: /etc/seaweedfs/s3.json
+    volumes:
+      - seaweeddata:/data
+    networks: [data]
+    deploy:
+      placement:
+        constraints: [node.labels.pmp.storage == true]
+    logging: *logging
+
+  storage-init:
+    # Creates the versioned documents bucket, then exits. Safe to re-run (docker service update --force).
+    image: amazon/aws-cli:2.27.0
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        export AWS_ACCESS_KEY_ID="$$(cat /run/secrets/PMP_S3_ACCESS_KEY)"
+        AWS_SECRET_ACCESS_KEY="$$(cat /run/secrets/PMP_S3_SECRET_KEY)" &&
+        exec /bin/sh /init-bucket.sh
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      S3_ENDPOINT: http://seaweedfs:8333
+      S3_BUCKET: pmp-documents
+    secrets: [PMP_S3_ACCESS_KEY, PMP_S3_SECRET_KEY]
+    configs:
+      - source: init_bucket
+        target: /init-bucket.sh
+    networks: [data]
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+    logging: *logging
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    entrypoint:
+      - /bin/bash
+      - -c
+      - >-
+        export KC_DB_PASSWORD="$$(cat /run/secrets/KC_DB_PASSWORD)"
+        KC_BOOTSTRAP_ADMIN_PASSWORD="$$(cat /run/secrets/KC_ADMIN_PASSWORD)" &&
+        exec /opt/keycloak/bin/kc.sh start --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_HOSTNAME: https://${PMP_HOST}/auth
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin   # first start only; create named admins, then remove this one
+      # Values the realm import (pmp-realm.json) fills in on first start.
+      PMP_PUBLIC_URL: https://${PMP_HOST}
+      PMP_TENANT_ID: ${PMP_TENANT_ID}
+    secrets: [KC_DB_PASSWORD, KC_ADMIN_PASSWORD]
+    configs:
+      - source: keycloak_realm
+        target: /opt/keycloak/data/import/pmp-realm.json
+    networks: [edge, data]
+    deploy:
+      labels:
+        - traefik.enable=true
+        - traefik.http.services.keycloak.loadbalancer.server.port=8080
+        - traefik.http.routers.keycloak.rule=Host(`${PMP_HOST}`) && PathPrefix(`/auth`)
+        - traefik.http.routers.keycloak.entrypoints=websecure
+        - traefik.http.routers.keycloak.tls.certresolver=${PMP_TLS_RESOLVER:-le}
+        - traefik.http.routers.keycloak.service=keycloak
+        # The admin console and the master (administrators') realm only from the office network.
+        - traefik.http.routers.keycloak-admin.rule=Host(`${PMP_HOST}`) && (PathPrefix(`/auth/admin`) || PathPrefix(`/auth/realms/master`))
+        - traefik.http.routers.keycloak-admin.entrypoints=websecure
+        - traefik.http.routers.keycloak-admin.tls.certresolver=${PMP_TLS_RESOLVER:-le}
+        - traefik.http.routers.keycloak-admin.middlewares=pmp-admin-only
+        - traefik.http.routers.keycloak-admin.service=keycloak
+        - traefik.http.middlewares.pmp-admin-only.ipallowlist.sourcerange=${PMP_ADMIN_ALLOW_CIDR}
+    logging: *logging
+
+  backend:
+    image: ${PMP_REGISTRY}/pmp-backend:${PMP_VERSION}
+    environment:
+      # No profile: sign-in required, tenant from the token. Never set "dev" here.
+      SPRING_PROFILES_ACTIVE: ""
+      PMP_DB_URL: jdbc:postgresql://postgres:5432/pmp
+      PMP_DB_USER: pmp_app                   # row-level security applies to this role
+      # Flyway runs the migrations at start-up as the owner, on its own connection.
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/pmp
+      SPRING_FLYWAY_USER: pmp
+      PMP_OIDC_ISSUER_URI: https://${PMP_HOST}/auth/realms/pmp
+      PMP_OIDC_JWKS_URI: http://keycloak:8080/auth/realms/pmp/protocol/openid-connect/certs
+      PMP_S3_ENDPOINT: http://seaweedfs:8333
+      PMP_S3_BUCKET: pmp-documents
+      PMP_TENANT_ID: ${PMP_TENANT_ID}
+      PMP_TENANT_NAME: ${PMP_TENANT_NAME}
+      PMP_ADMIN_EMAIL: ${PMP_ADMIN_EMAIL}
+      PMP_ADMIN_NAME: ${PMP_ADMIN_NAME:-System administrator}
+    # Files in /run/secrets become properties of the same name (spring.config.import configtree).
+    secrets:
+      - source: PMP_DB_APP_PASSWORD
+        target: PMP_DB_PASSWORD
+      - source: PMP_DB_MIGRATION_PASSWORD
+        target: spring.flyway.password
+      - PMP_SEALING_MASTER_KEY
+      - PMP_S3_ACCESS_KEY
+      - PMP_S3_SECRET_KEY
+    networks: [data]
+    deploy:
+      # One replica: the daily reminder jobs have no cross-instance lock yet.
+      replicas: 1
+      update_config:
+        order: start-first
+        failure_action: rollback
+    logging: *logging
+
+  analytics:
+    image: ${PMP_REGISTRY}/pmp-analytics:${PMP_VERSION}
+    environment:
+      PMP_OIDC_ISSUER_URI: https://${PMP_HOST}/auth/realms/pmp
+      PMP_OIDC_JWKS_URI: http://keycloak:8080/auth/realms/pmp/protocol/openid-connect/certs
+      PMP_ALLOW_TENANT_HEADER: "false"
+    secrets:
+      - PMP_DATABASE_URL   # postgresql+psycopg://pmp_analytics:<password>@postgres:5432/pmp
+    networks: [data]
+    logging: *logging
+
+  frontend:
+    image: ${PMP_REGISTRY}/pmp-frontend:${PMP_VERSION}
+    environment:
+      PMP_OIDC_ISSUER_URI: https://${PMP_HOST}/auth/realms/pmp
+      PMP_OIDC_CLIENT_ID: pmp-web
+    networks: [edge, data]
+    deploy:
+      replicas: 2
+      labels:
+        - traefik.enable=true
+        - traefik.http.services.frontend.loadbalancer.server.port=80
+        - traefik.http.routers.app.rule=Host(`${PMP_HOST}`)
+        - traefik.http.routers.app.entrypoints=websecure
+        - traefik.http.routers.app.tls.certresolver=${PMP_TLS_RESOLVER:-le}
+        - traefik.http.routers.app.middlewares=pmp-hsts
+        - traefik.http.middlewares.pmp-hsts.headers.stsSeconds=31536000
+    logging: *logging
+
+  db-backup:
+    # Nightly pg_dump of both databases into PMP_BACKUP_DIR; keeps PMP_BACKUP_KEEP_DAYS days.
+    image: postgres:17-alpine
+    entrypoint: ["/bin/sh", "/pg-backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: pmp
+      BACKUP_HOUR: ${PMP_BACKUP_HOUR:-1}
+      KEEP_DAYS: ${PMP_BACKUP_KEEP_DAYS:-14}
+      TZ: Africa/Nairobi
+    secrets: [PMP_DB_MIGRATION_PASSWORD]
+    configs:
+      - source: pg_backup
+        target: /pg-backup.sh
+    volumes:
+      - ${PMP_BACKUP_DIR:-/srv/pmp-backups}/postgres:/backups
+    networks: [data]
+    deploy:
+      placement:
+        constraints: [node.labels.pmp.db == true]
+    logging: *logging
+
+  docs-backup:
+    # Nightly copy of the documents bucket into PMP_BACKUP_DIR (current versions of every file).
+    image: amazon/aws-cli:2.27.0
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        export AWS_ACCESS_KEY_ID="$$(cat /run/secrets/PMP_S3_ACCESS_KEY)"
+        AWS_SECRET_ACCESS_KEY="$$(cat /run/secrets/PMP_S3_SECRET_KEY)" &&
+        exec /bin/sh /docs-backup.sh
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      S3_ENDPOINT: http://seaweedfs:8333
+      S3_BUCKET: pmp-documents
+      BACKUP_HOUR: ${PMP_BACKUP_HOUR:-1}
+      TZ: Africa/Nairobi
+    secrets: [PMP_S3_ACCESS_KEY, PMP_S3_SECRET_KEY]
+    configs:
+      - source: docs_backup
+        target: /docs-backup.sh
+    volumes:
+      - ${PMP_BACKUP_DIR:-/srv/pmp-backups}/documents:/backups
+    networks: [data]
+    deploy:
+      placement:
+        constraints: [node.labels.pmp.storage == true]
+    logging: *logging
+
+networks:
+  edge:
+    driver: overlay
+  data:
+    driver: overlay
+    internal: true
+    attachable: true   # lets one-off restore containers (RUNBOOK.md) join it
+
+volumes:
+  pgdata:
+  seaweeddata:
+  letsencrypt:
+
+configs:
+  pg_roles:
+    file: ./postgres/10-roles.sh
+    name: pmp_pg_roles_${PMP_CONFIG_VERSION:-1}
+  init_bucket:
+    file: ./seaweedfs/init-bucket.sh
+    name: pmp_init_bucket_${PMP_CONFIG_VERSION:-1}
+  keycloak_realm:
+    file: ./keycloak/pmp-realm.json
+    name: pmp_keycloak_realm_${PMP_CONFIG_VERSION:-1}
+  pg_backup:
+    file: ./backup/pg-backup.sh
+    name: pmp_pg_backup_${PMP_CONFIG_VERSION:-1}
+  docs_backup:
+    file: ./backup/docs-backup.sh
+    name: pmp_docs_backup_${PMP_CONFIG_VERSION:-1}
+
+secrets:
+  PMP_DB_MIGRATION_PASSWORD: { external: true }
+  PMP_DB_APP_PASSWORD: { external: true }
+  PMP_DB_ANALYTICS_PASSWORD: { external: true }
+  PMP_DATABASE_URL: { external: true }
+  PMP_SEALING_MASTER_KEY: { external: true }
+  PMP_S3_ACCESS_KEY: { external: true }
+  PMP_S3_SECRET_KEY: { external: true }
+  PMP_S3_CONFIG: { external: true }
+  KC_DB_PASSWORD: { external: true }
+  KC_ADMIN_PASSWORD: { external: true }

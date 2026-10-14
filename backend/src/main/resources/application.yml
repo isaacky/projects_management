@@ -1,0 +1,86 @@
+spring:
+  application:
+    name: pm-platform
+  config:
+    # On Docker Swarm, secrets are mounted as files named after the variable they replace
+    # (/run/secrets/PMP_DB_PASSWORD and so on); each file's content becomes that property.
+    import: optional:configtree:/run/secrets/
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${PMP_DB_URL:jdbc:postgresql://localhost:5432/pmp}
+    username: ${PMP_DB_USER:pmp}
+    password: ${PMP_DB_PASSWORD:pmp}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    schemas: platform,portfolio,procurement,contracts,planning,execution,closeout,benefits
+    default-schema: platform
+    locations: classpath:db/migration
+    # Locally, migrations use the application's own connection. On servers the application connects
+    # as the restricted role pmp_app (row-level security applies to it) and migrations run as the
+    # owner: deploy/stack.yml sets spring.flyway.url, .user and .password for that.
+    placeholders:
+      app_role: ${PMP_DB_APP_ROLE:pmp_app}
+      analytics_role: ${PMP_DB_ANALYTICS_ROLE:pmp_analytics}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Keycloak realm. Tokens must carry exactly this issuer (the address browsers use).
+          issuer-uri: ${PMP_OIDC_ISSUER_URI:http://localhost:8180/realms/pmp}
+          # Signing keys, fetched on first use. Set when the backend reaches Keycloak by an internal
+          # address (http://keycloak:8080/auth/realms/pmp/protocol/openid-connect/certs on Swarm).
+          jwk-set-uri: ${PMP_OIDC_JWKS_URI:${PMP_OIDC_ISSUER_URI:http://localhost:8180/realms/pmp}/protocol/openid-connect/certs}
+          # Only tokens issued for this API (the realm's audience mapper adds it).
+          audiences: ${PMP_OIDC_AUDIENCE:pmp-api}
+
+  servlet:
+    multipart:
+      max-file-size: 200MB
+      max-request-size: 600MB
+
+server:
+  port: ${PMP_PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+pmp:
+  bootstrap:
+    # First start on a server: creates the organisation (with starter procurement settings) and its
+    # first system administrator, who then adds everyone else. The tenant id must match the
+    # tenant_id claim set in Keycloak (PMP_TENANT_ID). Does nothing once both exist.
+    tenant-id: ${PMP_TENANT_ID:}
+    tenant-name: ${PMP_TENANT_NAME:}
+    tenant-slug: ${PMP_TENANT_SLUG:}
+    admin-email: ${PMP_ADMIN_EMAIL:}
+    admin-name: ${PMP_ADMIN_NAME:System administrator}
+  tenant:
+    # Only the dev profile may take the tenant from a request header.
+    allow-header: false
+  sealing:
+    # 32 random bytes, base64 (openssl rand -base64 32). Protects sealed bids.
+    # Keep it outside the database and back it up: without it sealed bids cannot be opened.
+    master-key: ${PMP_SEALING_MASTER_KEY:}
+  storage:
+    type: ${PMP_STORAGE_TYPE:s3}
+    endpoint: ${PMP_S3_ENDPOINT:http://localhost:8333}
+    bucket: ${PMP_S3_BUCKET:pmp-documents}
+    access-key: ${PMP_S3_ACCESS_KEY:pmp}
+    secret-key: ${PMP_S3_SECRET_KEY:pmp-secret-change-me}

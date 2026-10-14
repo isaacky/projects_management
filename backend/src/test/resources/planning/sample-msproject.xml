@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <Name>Feeder extension</Name>
+  <StartDate>2026-11-02T08:00:00</StartDate>
+  <Tasks>
+    <Task><UID>0</UID><ID>0</ID><Name>Feeder extension</Name><OutlineLevel>0</OutlineLevel><Summary>1</Summary>
+      <Start>2026-11-02T08:00:00</Start><Finish>2026-12-11T17:00:00</Finish></Task>
+    <Task><UID>1</UID><ID>1</ID><Name>Preparation</Name><OutlineLevel>1</OutlineLevel><Summary>1</Summary>
+      <Start>2026-11-02T08:00:00</Start><Finish>2026-11-13T17:00:00</Finish></Task>
+    <Task><UID>2</UID><ID>2</ID><Name>Route survey</Name><OutlineLevel>2</OutlineLevel><Summary>0</Summary>
+      <Start>2026-11-02T08:00:00</Start><Finish>2026-11-06T17:00:00</Finish><Duration>PT40H0M0S</Duration>
+      <PercentComplete>100</PercentComplete><ActualStart>2026-11-02T08:00:00</ActualStart><ActualFinish>2026-11-06T17:00:00</ActualFinish></Task>
+    <Task><UID>3</UID><ID>3</ID><Name>Wayleave consents</Name><OutlineLevel>2</OutlineLevel><Summary>0</Summary>
+      <Start>2026-11-04T08:00:00</Start><Finish>2026-11-13T17:00:00</Finish>
+      <PredecessorLink><PredecessorUID>2</PredecessorUID><Type>3</Type><LinkLag>9600</LinkLag></PredecessorLink></Task>
+    <Task><UID>4</UID><ID>4</ID><Name>Pole erection and stringing</Name><OutlineLevel>1</OutlineLevel><Summary>0</Summary>
+      <Start>2026-11-16T08:00:00</Start><Finish>2026-12-10T17:00:00</Finish>
+      <PredecessorLink><PredecessorUID>3</PredecessorUID><Type>1</Type><LinkLag>0</LinkLag></PredecessorLink>
+      <PredecessorLink><PredecessorUID>2</PredecessorUID><Type>0</Type><LinkLag>0</LinkLag></PredecessorLink></Task>
+    <Task><UID>5</UID><ID>5</ID><Name>Energised</Name><OutlineLevel>1</OutlineLevel><Summary>0</Summary><Milestone>1</Milestone>
+      <Start>2026-12-11T08:00:00</Start><Finish>2026-12-11T08:00:00</Finish>
+      <PredecessorLink><PredecessorUID>4</PredecessorUID><Type>1</Type></PredecessorLink></Task>
+  </Tasks>
+</Project>

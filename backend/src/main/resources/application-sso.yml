@@ -1,0 +1,25 @@
+# Sign in through the local Keycloak instead of the "Viewing as" switcher, keeping the development
+# sample data, and connect as the restricted role pmp_app so row-level security applies, as on a
+# server:
+#
+#   docker compose --profile sso up -d        (Keycloak on http://localhost:8180, sample accounts)
+#   SPRING_PROFILES_ACTIVE=dev,sso            (backend)
+#   npm run dev:sso                           (frontend)
+#
+# Sample accounts: the sample users' emails, password pmp-dev-password (see deploy/keycloak/dev).
+# The pmp.lead@example.com account is also a system administrator (Users and roles).
+spring:
+  datasource:
+    username: ${PMP_DB_APP_USER:pmp_app}
+    password: ${PMP_DB_APP_PASSWORD:pmp_app}
+  flyway:
+    # Migrations (and the development samples) as the owner, with their own connection.
+    url: ${PMP_DB_URL:jdbc:postgresql://localhost:5432/pmp}
+    user: ${PMP_DB_USER:pmp}
+    password: ${PMP_DB_PASSWORD:pmp}
+
+pmp:
+  tenant:
+    allow-header: false
+  dev:
+    default-user-id: ""

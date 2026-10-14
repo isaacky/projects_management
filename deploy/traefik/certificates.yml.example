@@ -1,0 +1,9 @@
+# Corporate certificate instead of Let's Encrypt: copy this file, the certificate (full chain) and
+# its key into PMP_TLS_DIR (default /srv/pmp-tls) on the manager node, as certificates.yml,
+# pmp.crt and pmp.key, and remove the "tls.certresolver" labels from stack.yml (see RUNBOOK.md).
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik/dynamic/pmp.crt
+        keyFile: /etc/traefik/dynamic/pmp.key

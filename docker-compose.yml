@@ -1,0 +1,132 @@
+# Local development stack.
+#
+#   docker compose up -d                 -> PostgreSQL 17, SeaweedFS (S3), Redis only
+#                                           (run the three apps from your IDE)
+#   docker compose --profile app up -d   -> everything, including the apps
+#   docker compose --profile sso up -d   -> also Keycloak on http://localhost:8180, to try signing in
+#                                           as on a server (backend: SPRING_PROFILES_ACTIVE=dev,sso;
+#                                           frontend: npm run dev:sso). Admin console: admin / admin.
+#
+# Servers use the same images on Docker Swarm: see deploy/stack.yml and deploy/RUNBOOK.md.
+
+name: pm-platform
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pmp
+      POSTGRES_USER: ${PMP_DB_USER:-pmp}
+      POSTGRES_PASSWORD: ${PMP_DB_PASSWORD:-pmp}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PMP_DB_USER:-pmp} -d pmp"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  seaweedfs:
+    # S3-compatible object storage for documents, bids and drawings.
+    # (MinIO's community edition is no longer published or maintained.)
+    # Access keys live in deploy/seaweedfs/s3.json; change them outside your laptop.
+    image: chrislusf/seaweedfs:latest
+    command: >
+      server -dir=/data -s3 -s3.port=8333
+      -s3.config=/etc/seaweedfs/s3.json
+      -volume.max=0 -master.volumeSizeLimitMB=1024
+    ports:
+      - "8333:8333"   # S3 API
+      - "8888:8888"   # filer web UI (browse stored files)
+      - "9333:9333"   # master status page
+    volumes:
+      - seaweeddata:/data
+      - ./deploy/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+
+  storage-init:
+    # Creates the documents bucket (versioned, with object lock where supported), then exits.
+    image: amazon/aws-cli:latest
+    depends_on:
+      - seaweedfs
+    entrypoint: ["/bin/sh", "/init-bucket.sh"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${PMP_S3_ACCESS_KEY:-pmp}
+      AWS_SECRET_ACCESS_KEY: ${PMP_S3_SECRET_KEY:-pmp-secret-change-me}
+      AWS_DEFAULT_REGION: us-east-1
+      S3_ENDPOINT: http://seaweedfs:8333
+      S3_BUCKET: ${PMP_S3_BUCKET:-pmp-documents}
+    volumes:
+      - ./deploy/seaweedfs/init-bucket.sh:/init-bucket.sh:ro
+    restart: "no"
+
+  keycloak:
+    # Development sign-in: realm "pmp" with the sample users (password pmp-dev-password), imported
+    # on first start from deploy/keycloak/dev. Data lives in the container; remove it to start over.
+    profiles: ["sso"]
+    image: quay.io/keycloak/keycloak:26.3
+    command: start-dev --import-realm --http-port=8180
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8180:8180"
+    volumes:
+      - ./deploy/keycloak/dev/pmp-realm.json:/opt/keycloak/data/import/pmp-realm.json:ro
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ---------------------------------------------------------------- apps
+  backend:
+    profiles: ["app"]
+    build: ./backend
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      PMP_DB_URL: jdbc:postgresql://postgres:5432/pmp
+      PMP_DB_USER: ${PMP_DB_USER:-pmp}
+      PMP_DB_PASSWORD: ${PMP_DB_PASSWORD:-pmp}
+      PMP_S3_ENDPOINT: http://seaweedfs:8333
+      PMP_S3_ACCESS_KEY: ${PMP_S3_ACCESS_KEY:-pmp}
+      PMP_S3_SECRET_KEY: ${PMP_S3_SECRET_KEY:-pmp-secret-change-me}
+    ports:
+      - "8082:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  analytics:
+    profiles: ["app"]
+    build: ./analytics
+    environment:
+      PMP_DATABASE_URL: postgresql+psycopg://${PMP_DB_USER:-pmp}:${PMP_DB_PASSWORD:-pmp}@postgres:5432/pmp
+      PMP_ALLOW_TENANT_HEADER: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      backend:
+        condition: service_started
+
+  frontend:
+    profiles: ["app"]
+    build:
+      context: ./frontend
+      args:
+        VITE_DEV_TENANT_ID: ${VITE_DEV_TENANT_ID:-01920000-0000-7000-8000-000000000001}
+    ports:
+      - "8081:80"
+    depends_on:
+      - backend
+      - analytics
+
+volumes:
+  pgdata:
+  seaweeddata:
