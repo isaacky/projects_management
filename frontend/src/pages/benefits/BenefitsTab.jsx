@@ -38,6 +38,8 @@ import {
   sparkPoints,
 } from '../../domain/benefits.js';
 import { formatDate } from '../../domain/contracts.js';
+import { OUTCOME, lessonDraft, shortfalls } from '../../domain/objectives.js';
+import { LessonDialog } from '../closeout/LessonsSection.jsx';
 import { formatMoney } from '../../utils/money.js';
 import { NoteDialog } from '../procurement-plan/PlanDialogs.jsx';
 import {
@@ -217,8 +219,17 @@ BenefitCard.propTypes = {
   onClose: PropTypes.func.isRequired,
 };
 
+export function OutcomeChip({ outcome, size = 'small' }) {
+  const o = OUTCOME[outcome];
+  return o ? <Chip size={size} label={o.label} color={o.color} variant={outcome === 'TOO_EARLY' ? 'outlined' : 'filled'} /> : null;
+}
+
+OutcomeChip.propTypes = { outcome: PropTypes.string, size: PropTypes.string };
+
 function ReviewCard({ review: r, onWrite, onEdit, onCancel }) {
   const st = REVIEW_STATUS[r.status];
+  const [lesson, setLesson] = useState(null);
+  const gaps = new Set(shortfalls(r.objectiveAssessments).map((a) => a.objectiveId));
   return (
     <Card variant="outlined">
       <CardContent>
@@ -240,7 +251,7 @@ function ReviewCard({ review: r, onWrite, onEdit, onCancel }) {
           <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
             {r.canComplete && (
               <Button size="small" variant="contained" onClick={() => onWrite(r)}>
-                {r.summary || r.assessments.length ? 'Continue write-up' : 'Write up'}
+                {r.summary || r.assessments.length || r.objectiveAssessments?.length ? 'Continue write-up' : 'Write up'}
               </Button>
             )}
             {r.canEdit && (
@@ -263,7 +274,31 @@ function ReviewCard({ review: r, onWrite, onEdit, onCancel }) {
                 Recommendations: {r.recommendations}
               </Typography>
             )}
-            <Table size="small" sx={{ mt: 1 }}>
+            {r.objectiveAssessments?.length > 0 && (
+              <Table size="small" sx={{ mt: 1 }} aria-label="Objectives">
+                <TableBody>
+                  {r.objectiveAssessments.map((a) => (
+                    <TableRow key={a.objectiveId}>
+                      <TableCell sx={{ width: '35%' }}>
+                        O{a.objectiveNumber} · {a.statement}
+                      </TableCell>
+                      <TableCell>
+                        <OutcomeChip outcome={a.outcome} />
+                      </TableCell>
+                      <TableCell>{a.evidence}</TableCell>
+                      <TableCell align="right">
+                        {gaps.has(a.objectiveId) && (
+                          <Button size="small" onClick={() => setLesson(lessonDraft(a, r.title))}>
+                            Record a lesson
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+            <Table size="small" sx={{ mt: 1 }} aria-label="Benefits">
               <TableBody>
                 {r.assessments.map((a) => (
                   <TableRow key={a.benefitId}>
@@ -285,6 +320,7 @@ function ReviewCard({ review: r, onWrite, onEdit, onCancel }) {
             </Table>
           </Box>
         )}
+        {lesson && <LessonDialog projectId={r.project.id} draft={lesson} onClose={() => setLesson(null)} />}
         {r.status === 'CANCELLED' && r.cancelNote && (
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
             Cancelled: {r.cancelNote}
@@ -469,6 +505,7 @@ export default function BenefitsTab({ projectId }) {
         <FindingsDialog
           review={dialog.item}
           benefits={v.benefits}
+          objectives={v.objectives ?? []}
           {...common}
           onSave={(body, complete) =>
             run(

@@ -8,13 +8,29 @@ import {
   DialogContent,
   DialogTitle,
   Grid,
+  IconButton,
   MenuItem,
+  Stack,
   TextField,
+  Tooltip,
+  Typography,
 } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { useCreateProject } from '../api/projects.js';
 import { toMinorUnits } from '../utils/money.js';
+import { MAX_OBJECTIVES, objectiveInputs } from '../domain/objectives.js';
 
-const EMPTY = { code: '', name: '', sponsor: '', description: '', budget: '', currency: 'KES' };
+const BLANK_OBJECTIVE = { statement: '', successMeasure: '' };
+const EMPTY = {
+  code: '',
+  name: '',
+  sponsor: '',
+  description: '',
+  budget: '',
+  currency: 'KES',
+  objectives: [BLANK_OBJECTIVE],
+};
 const CURRENCIES = ['KES', 'USD', 'EUR'];
 
 export default function NewProjectDialog({ open, onClose, onCreated }) {
@@ -24,6 +40,15 @@ export default function NewProjectDialog({ open, onClose, onCreated }) {
   const serverErrors = create.error?.fieldErrors ?? {};
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+  const setObjective = (i, field) => (e) =>
+    setForm((f) => ({
+      ...f,
+      objectives: f.objectives.map((o, j) => (j === i ? { ...o, [field]: e.target.value } : o)),
+    }));
+  const addObjective = () =>
+    setForm((f) => ({ ...f, objectives: [...f.objectives, BLANK_OBJECTIVE] }));
+  const removeObjective = (i) =>
+    setForm((f) => ({ ...f, objectives: f.objectives.filter((_, j) => j !== i) }));
 
   const close = () => {
     setForm(EMPTY);
@@ -50,6 +75,7 @@ export default function NewProjectDialog({ open, onClose, onCreated }) {
         description: form.description.trim() || null,
         budgetMinor,
         currency: form.currency,
+        objectives: objectiveInputs(form.objectives),
       },
       {
         onSuccess: (project) => {
@@ -127,6 +153,59 @@ export default function NewProjectDialog({ open, onClose, onCreated }) {
               minRows={3}
               fullWidth
             />
+          </Grid>
+          <Grid size={12}>
+            <Typography variant="subtitle2">Objectives</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              What the project must achieve, from the business case, and how you will tell. The
+              post-implementation review records whether each one was met. You can refine them until
+              gate G0.
+            </Typography>
+            <Stack spacing={1.5}>
+              {form.objectives.map((o, i) => (
+                // eslint-disable-next-line react/no-array-index-key
+                <Stack key={i} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="flex-start">
+                  <TextField
+                    label={`Objective ${i + 1}`}
+                    value={o.statement}
+                    onChange={setObjective(i, 'statement')}
+                    error={Boolean(serverErrors[`objectives[${i}].statement`])}
+                    helperText={serverErrors[`objectives[${i}].statement`]}
+                    slotProps={{ htmlInput: { maxLength: 500 } }}
+                    size="small"
+                    fullWidth
+                  />
+                  <TextField
+                    label="How success will be judged"
+                    value={o.successMeasure}
+                    onChange={setObjective(i, 'successMeasure')}
+                    placeholder="e.g. 12,000 customers connected by June 2028"
+                    slotProps={{ htmlInput: { maxLength: 500 } }}
+                    size="small"
+                    fullWidth
+                  />
+                  <Tooltip title="Remove">
+                    <span>
+                      <IconButton
+                        aria-label={`Remove objective ${i + 1}`}
+                        onClick={() => removeObjective(i)}
+                        disabled={form.objectives.length === 1}
+                      >
+                        <DeleteOutlineIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Stack>
+              ))}
+            </Stack>
+            <Button
+              startIcon={<AddIcon />}
+              onClick={addObjective}
+              disabled={form.objectives.length >= MAX_OBJECTIVES}
+              sx={{ mt: 1 }}
+            >
+              Add objective
+            </Button>
           </Grid>
         </Grid>
       </DialogContent>

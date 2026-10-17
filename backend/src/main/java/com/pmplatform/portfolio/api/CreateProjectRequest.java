@@ -1,9 +1,12 @@
 package com.pmplatform.portfolio.api;
 
+import com.pmplatform.portfolio.api.ObjectiveDtos.ObjectiveInput;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 
 public record CreateProjectRequest(
         @NotBlank @Size(max = 32) @Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9-]*",
@@ -12,7 +15,8 @@ public record CreateProjectRequest(
         @Size(max = 4000) String description,
         @Size(max = 200) String sponsor,
         @PositiveOrZero long budgetMinor,
-        @Pattern(regexp = "[A-Z]{3}", message = "ISO 4217 code, for example KES") String currency) {
+        @Pattern(regexp = "[A-Z]{3}", message = "ISO 4217 code, for example KES") String currency,
+        @Size(max = 20, message = "at most 20 objectives") List<@Valid ObjectiveInput> objectives) {
 
     public String currencyOrDefault() {
         return currency == null || currency.isBlank() ? "KES" : currency;

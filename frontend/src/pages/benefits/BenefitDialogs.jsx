@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import { useUsers } from '../../api/me.js';
 import { CATEGORY, FREQUENCY, OBJECTIVES_MET, RATING, formatValue } from '../../domain/benefits.js';
+import { OUTCOME, overallFromOutcomes } from '../../domain/objectives.js';
 import { inputToMinor, minorToInput } from '../../utils/amountField.js';
 import { formatMoney } from '../../utils/money.js';
 
@@ -383,8 +384,21 @@ StandardReviewsDialog.propTypes = {
 };
 
 /** Writing up a review: the overall findings and a rating and comment for each benefit. */
-export function FindingsDialog({ review, benefits, pending, error, onClose, onSave }) {
+export function FindingsDialog({ review, benefits, objectives = [], pending, error, onClose, onSave }) {
   const assessed = Object.fromEntries((review.assessments ?? []).map((a) => [a.benefitId, a]));
+  const judged = Object.fromEntries((review.objectiveAssessments ?? []).map((a) => [a.objectiveId, a]));
+  const [objRows, setObjRows] = useState(() =>
+    Object.fromEntries(
+      objectives.map((o) => [
+        o.id,
+        { outcome: judged[o.id]?.outcome ?? '', evidence: judged[o.id]?.evidence ?? '' },
+      ]),
+    ),
+  );
+  const objRow = (id) => objRows[id] ?? { outcome: '', evidence: '' };
+  const setObj = (id, k) => (e) =>
+    setObjRows((s) => ({ ...s, [id]: { ...objRow(id), ...s[id], [k]: e.target.value } }));
+  const derived = overallFromOutcomes(objectives.map((o) => objRow(o.id).outcome));
   const scope = benefits.filter((b) => b.status !== 'CANCELLED');
   const [f, setF] = useState({
     conductedOn: review.conductedOn ?? today(),
@@ -404,15 +418,26 @@ export function FindingsDialog({ review, benefits, pending, error, onClose, onSa
   const setRow = (id, k) => (e) => setRows((s) => ({ ...s, [id]: { ...s[id], [k]: e.target.value } }));
   const body = () => ({
     conductedOn: f.conductedOn || null,
-    objectivesMet: f.objectivesMet || null,
+    objectivesMet: derived ?? (f.objectivesMet || null),
     summary: f.summary.trim() || null,
     recommendations: f.recommendations.trim() || null,
     assessments: scope
       .filter((b) => rows[b.id].rating)
       .map((b) => ({ benefitId: b.id, rating: rows[b.id].rating, comment: rows[b.id].comment.trim() || null })),
+    objectiveAssessments: objectives
+      .filter((o) => objRow(o.id).outcome)
+      .map((o) => ({
+        objectiveId: o.id,
+        outcome: objRow(o.id).outcome,
+        evidence: objRow(o.id).evidence.trim() || null,
+      })),
   });
   const complete =
-    f.conductedOn && f.objectivesMet && f.summary.trim() && scope.every((b) => rows[b.id].rating);
+    f.conductedOn &&
+    (derived || f.objectivesMet) &&
+    f.summary.trim() &&
+    scope.every((b) => rows[b.id].rating) &&
+    objectives.every((o) => objRow(o.id).outcome);
 
   return (
     <Dialog open onClose={onClose} fullWidth maxWidth="md">
@@ -424,7 +449,21 @@ export function FindingsDialog({ review, benefits, pending, error, onClose, onSa
             <TextField label="Held on" type="date" value={f.conductedOn} onChange={set('conductedOn')} fullWidth slotProps={{ inputLabel: { shrink: true } }} />
           </Grid>
           <Grid size={{ xs: 12, sm: 8 }}>
-            <TextField select label="Business-case objectives met?" value={f.objectivesMet} onChange={set('objectivesMet')} fullWidth>
+            <TextField
+              select
+              label="Business-case objectives met?"
+              value={derived ?? f.objectivesMet}
+              onChange={set('objectivesMet')}
+              disabled={Boolean(derived)}
+              helperText={
+                derived
+                  ? 'Follows from the objectives below'
+                  : objectives.length
+                    ? 'Your judgement until an objective below is decided'
+                    : null
+              }
+              fullWidth
+            >
               {Object.entries(OBJECTIVES_MET).map(([k, v]) => (
                 <MenuItem key={k} value={k}>
                   {v}
@@ -439,6 +478,52 @@ export function FindingsDialog({ review, benefits, pending, error, onClose, onSa
             <TextField label="Recommendations" value={f.recommendations} onChange={set('recommendations')} multiline minRows={2} fullWidth slotProps={{ htmlInput: { maxLength: 4000 } }} />
           </Grid>
         </Grid>
+        {objectives.length > 0 && (
+          <>
+            <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
+              Each objective
+            </Typography>
+            <Stack spacing={2}>
+              {objectives.map((o) => (
+                <Box key={o.id} sx={{ p: 1.5, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    O{o.number} · {o.statement}
+                  </Typography>
+                  {o.successMeasure && (
+                    <Typography variant="caption" color="text.secondary">
+                      Success: {o.successMeasure}
+                    </Typography>
+                  )}
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1 }}>
+                    <TextField
+                      select
+                      size="small"
+                      label="Was it met?"
+                      value={objRow(o.id).outcome}
+                      onChange={setObj(o.id, 'outcome')}
+                      sx={{ minWidth: 190 }}
+                    >
+                      {Object.entries(OUTCOME).map(([k, v]) => (
+                        <MenuItem key={k} value={k}>
+                          {v.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    <TextField
+                      size="small"
+                      label="Evidence"
+                      placeholder="What shows it, e.g. the figure and its source"
+                      value={objRow(o.id).evidence}
+                      onChange={setObj(o.id, 'evidence')}
+                      fullWidth
+                      slotProps={{ htmlInput: { maxLength: 2000 } }}
+                    />
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          </>
+        )}
         <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
           Each benefit
         </Typography>
@@ -487,6 +572,7 @@ export function FindingsDialog({ review, benefits, pending, error, onClose, onSa
 FindingsDialog.propTypes = {
   review: PropTypes.object.isRequired,
   benefits: PropTypes.array.isRequired,
+  objectives: PropTypes.array,
   pending: PropTypes.bool,
   error: PropTypes.instanceOf(Error),
   onClose: PropTypes.func.isRequired,

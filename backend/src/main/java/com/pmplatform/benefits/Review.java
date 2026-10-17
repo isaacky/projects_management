@@ -100,6 +100,14 @@ public class Review extends TenantEntity {
         touch(now);
     }
 
+    /** When the per-objective outcomes decide the overall result, it replaces the reviewer's own answer. */
+    public void objectivesMetFromObjectives(ObjectivesMet derived) {
+        requirePlanned();
+        if (derived != null) {
+            this.objectivesMet = derived;
+        }
+    }
+
     public void complete(UUID by, Instant now) {
         requirePlanned();
         if (conductedOn == null || objectivesMet == null || summary == null) {

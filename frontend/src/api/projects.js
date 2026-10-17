@@ -51,6 +51,8 @@ export function useAdvancePhase(id) {
       qc.invalidateQueries({ queryKey: projectKeys.history(id) });
       // Gates change what closeout allows (e.g. closing the project after G4).
       qc.invalidateQueries({ queryKey: ['closeout', id] });
+      // After gate G0 only the PMO changes the objectives, with a reason.
+      qc.invalidateQueries({ queryKey: ['objectives', id] });
     },
   });
 }

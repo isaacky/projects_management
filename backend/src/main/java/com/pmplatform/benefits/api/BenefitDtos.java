@@ -7,6 +7,7 @@ import com.pmplatform.benefits.Direction;
 import com.pmplatform.benefits.Frequency;
 import com.pmplatform.benefits.ObjectivesMet;
 import com.pmplatform.benefits.ReviewStatus;
+import com.pmplatform.portfolio.ObjectiveOutcome;
 import com.pmplatform.procurement.tender.api.TenderDtos.Ref;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Digits;
@@ -64,9 +65,19 @@ public final class BenefitDtos {
             @Size(max = 2000) String comment) {
     }
 
+    public record ObjectiveAssessmentInput(@NotNull UUID objectiveId, @NotNull ObjectiveOutcome outcome,
+            @Size(max = 2000) String evidence) {
+    }
+
+    /**
+     * The review's findings. When the project has objectives, {@code objectiveAssessments} records each one's
+     * outcome and the overall {@code objectivesMet} follows from them; it is only the reviewer's own call when
+     * no objective's outcome is decided yet.
+     */
     public record FindingsRequest(LocalDate conductedOn, ObjectivesMet objectivesMet,
             @Size(max = 4000) String summary, @Size(max = 4000) String recommendations,
-            @Size(max = 200) List<@Valid AssessmentInput> assessments) {
+            @Size(max = 200) List<@Valid AssessmentInput> assessments,
+            @Size(max = 50) List<@Valid ObjectiveAssessmentInput> objectiveAssessments) {
     }
 
     public record NoteRequest(@Size(max = 2000) String note) {
@@ -96,10 +107,19 @@ public final class BenefitDtos {
             BenefitRating rating, String comment) {
     }
 
+    public record ObjectiveAssessmentView(UUID objectiveId, int objectiveNumber, String statement,
+            ObjectiveOutcome outcome, String evidence) {
+    }
+
     public record ReviewView(UUID id, ProjectRef project, String title, LocalDate dueDate, Ref lead,
             ReviewStatus status, LocalDate conductedOn, ObjectivesMet objectivesMet, String summary,
             String recommendations, String cancelNote, Ref completedBy, Instant completedAt, boolean overdue,
-            List<AssessmentView> assessments, boolean canEdit, boolean canComplete, boolean canCancel, long version) {
+            List<AssessmentView> assessments, List<ObjectiveAssessmentView> objectiveAssessments, boolean canEdit,
+            boolean canComplete, boolean canCancel, long version) {
+    }
+
+    /** An active project objective, for the review form. */
+    public record ObjectiveRef(UUID id, int number, String statement, String successMeasure) {
     }
 
     public record Summary(int benefits, int active, int achieved, int onTrack, int atRisk, int offTrack,
@@ -110,7 +130,8 @@ public final class BenefitDtos {
     }
 
     public record ProjectBenefitsView(UUID projectId, LocalDate handoverDate, Summary summary,
-            List<BenefitView> benefits, List<ReviewView> reviews, Permissions permissions) {
+            List<BenefitView> benefits, List<ReviewView> reviews, List<ObjectiveRef> objectives,
+            Permissions permissions) {
     }
 
     public record PortfolioView(Summary summary, List<BenefitView> benefits, List<ReviewView> upcomingReviews) {

@@ -20,9 +20,12 @@ public class ProjectService {
     private final AuditService audit;
     private final Clock clock;
     private final List<PhaseGateCheck> gateChecks;
+    private final ProjectObjectiveService objectives;
 
-    public ProjectService(ProjectRepository projects, AuditService audit, Clock clock, List<PhaseGateCheck> gateChecks) {
+    public ProjectService(ProjectRepository projects, AuditService audit, Clock clock, List<PhaseGateCheck> gateChecks,
+            ProjectObjectiveService objectives) {
         this.projects = projects;
+        this.objectives = objectives;
         this.audit = audit;
         this.clock = clock;
         this.gateChecks = gateChecks;
@@ -62,6 +65,7 @@ public class ProjectService {
         projects.save(project);
         audit.record(tenantId, "project.created", "Project", project.getId(),
                 JsonText.object("code", code));
+        objectives.addInitial(project, req.objectives());
         return project;
     }
 

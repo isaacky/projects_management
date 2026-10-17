@@ -17,7 +17,13 @@ This repository holds three applications and the local infrastructure they need.
 
 The first slice is the **project spine and lifecycle gates**:
 
-- Create projects (code, name, sponsor, budget in KES minor units).
+- Create projects (code, name, sponsor, budget in KES minor units), listing the project's
+  **objectives** (what it must achieve, and how success will be judged) on the same form.
+- **Objectives** are shown on the project's Overview. During initiation the project manager or
+  the PMO adds, rewords or deletes them freely. After gate G0 they are the project's baseline:
+  only the PMO changes them, with a reason that goes on the audit record, and an objective that no
+  longer applies is withdrawn (with a reason) rather than deleted. Each objective shows the
+  outcome from the latest post-implementation review.
 - Move a project through the six phases (Initiation → Procurement → Planning →
   Execution → Closeout → Implementation). Each move records a gate decision (G0 to G4).
 - Every change is written to a **hash-chained, append-only audit log**. The database
@@ -390,11 +396,19 @@ card on the dashboard):
 - **Post-implementation reviews:** plan reviews by date, or plan the usual 6- and 12-month reviews
   from the accepted handover. The review lead writes up:
   - when the review was held;
-  - whether the business-case objectives were met;
+  - for each active project objective, whether it was met (met, partly met, not met, or too early
+    to tell) and the evidence;
+  - whether the objectives were met overall. This follows from the objectives: yes when every
+    decided objective was met, no when none was, partly otherwise. Objectives too early to call are
+    left out; the reviewer answers it only when nothing is decided yet (or the project has no
+    objectives);
   - a summary and recommendations;
   - a rating and comment for each benefit.
 
-  Completing the review freezes each benefit's figures as they stood.
+  Completing the review needs every active objective and benefit assessed. It freezes each
+  benefit's figures and each objective's wording as they stood. On a completed review, an
+  objective found partly met or not met has a **Record a lesson** button that opens a lesson
+  learned, filled in from the finding.
 - **Closing a benefit:** the project team closes a benefit as achieved, not achieved or cancelled,
   with a reason. The PMO can reopen it. Benefits outlive the project, so they can still be measured
   after it closes.
@@ -402,13 +416,15 @@ card on the dashboard):
   date), and review leads a week before their review.
 
 **Trying it locally:** the sample metering (MTR-2026-002) and rural network (NET-2026-001)
-projects have benefits, owned by *Sample Operations Officer*, with some readings.
+projects have benefits, owned by *Sample Operations Officer*, with some readings, and three
+objectives each.
 
 | Step | Viewing as |
 | --- | --- |
 | Add or change benefits, plan reviews, close benefits | *Sample Requester (Project Manager)* |
 | Record readings, lead and complete a review | *Sample Operations Officer* |
 | Reopen a closed benefit, see the portfolio | *PMO Lead (sample)* |
+| Change, withdraw or reinstate objectives after gate G0 | *PMO Lead (sample)* |
 
 **Reports** (Lifecycle → Reports): a catalogue of reports, each with filters, shown on screen
 and downloadable as an Excel workbook or CSV, or printed (or saved as PDF from the print dialog).

@@ -7,6 +7,9 @@ import com.pmplatform.benefits.api.BenefitDtos.BenefitView;
 import com.pmplatform.benefits.api.BenefitDtos.FindingsRequest;
 import com.pmplatform.benefits.api.BenefitDtos.MeasurementRequest;
 import com.pmplatform.benefits.api.BenefitDtos.MeasurementView;
+import com.pmplatform.benefits.api.BenefitDtos.ObjectiveAssessmentInput;
+import com.pmplatform.benefits.api.BenefitDtos.ObjectiveAssessmentView;
+import com.pmplatform.benefits.api.BenefitDtos.ObjectiveRef;
 import com.pmplatform.benefits.api.BenefitDtos.Permissions;
 import com.pmplatform.benefits.api.BenefitDtos.PortfolioView;
 import com.pmplatform.benefits.api.BenefitDtos.ProjectBenefitsView;
@@ -25,7 +28,10 @@ import com.pmplatform.platform.user.User;
 import com.pmplatform.platform.web.BusinessRuleException;
 import com.pmplatform.platform.web.ForbiddenActionException;
 import com.pmplatform.platform.web.NotFoundException;
+import com.pmplatform.portfolio.ObjectiveStatus;
 import com.pmplatform.portfolio.Project;
+import com.pmplatform.portfolio.ProjectObjective;
+import com.pmplatform.portfolio.ProjectObjectiveService;
 import com.pmplatform.portfolio.ProjectService;
 import com.pmplatform.portfolio.ProjectStatus;
 import com.pmplatform.procurement.tender.api.TenderDtos.Ref;
@@ -63,7 +69,9 @@ public class BenefitService {
     private final MeasurementRepository measurements;
     private final ReviewRepository reviews;
     private final ReviewAssessmentRepository assessments;
+    private final ReviewObjectiveAssessmentRepository objectiveAssessments;
     private final ProjectService projects;
+    private final ProjectObjectiveService objectives;
     private final CloseoutService closeout;
     private final CurrentUserService currentUser;
     private final NotificationService notifications;
@@ -72,9 +80,12 @@ public class BenefitService {
     private final Clock clock;
 
     public BenefitService(BenefitRepository benefits, MeasurementRepository measurements, ReviewRepository reviews,
-            ReviewAssessmentRepository assessments, ProjectService projects, CloseoutService closeout,
+            ReviewAssessmentRepository assessments, ReviewObjectiveAssessmentRepository objectiveAssessments,
+            ProjectService projects, ProjectObjectiveService objectives, CloseoutService closeout,
             CurrentUserService currentUser, NotificationService notifications, AuditService audit, JdbcTemplate jdbc,
             Clock clock) {
+        this.objectiveAssessments = objectiveAssessments;
+        this.objectives = objectives;
         this.benefits = benefits;
         this.measurements = measurements;
         this.reviews = reviews;
@@ -107,7 +118,7 @@ public class BenefitService {
         all.forEach(b -> projectIds.add(b.getProjectId()));
         planned.forEach(r -> projectIds.add(r.getProjectId()));
         Map<UUID, Project> projectMap = projects.byIds(tenantId, projectIds);
-        Ctx ctx = context(tenantId, all, planned, me);
+        Ctx ctx = context(tenantId, all, planned, me, objectivesOf(tenantId, planned));
         List<BenefitView> views = all.stream()
                 .sorted(Comparator.comparing((Benefit b) -> code(projectMap, b.getProjectId()))
                         .thenComparingInt(Benefit::getNumber))
@@ -329,7 +340,48 @@ public class BenefitService {
             a.assess(in.rating(), in.comment());
             assessments.save(a);
         }
+        // Each objective: was it met? The overall answer follows from these when any is decided.
+        Map<UUID, ProjectObjective> objectiveById = objectives.list(tenantId, projectId).stream()
+                .collect(Collectors.toMap(ProjectObjective::getId, Function.identity()));
+        Map<UUID, ReviewObjectiveAssessment> currentObj = objectiveAssessments.findByReviewIdIn(List.of(r.getId()))
+                .stream().collect(Collectors.toMap(ReviewObjectiveAssessment::getObjectiveId, Function.identity()));
+        Set<UUID> seenObj = new HashSet<>();
+        for (ObjectiveAssessmentInput in : req.objectiveAssessments() == null ? List.<ObjectiveAssessmentInput>of()
+                : req.objectiveAssessments()) {
+            ProjectObjective o = objectiveById.get(in.objectiveId());
+            if (o == null) {
+                throw new BusinessRuleException("An objective in the review is not one of this project's objectives");
+            }
+            if (o.getStatus() != ObjectiveStatus.ACTIVE) {
+                throw new BusinessRuleException("O" + o.getNumber() + " has been withdrawn, so it is not assessed; reload the review and try again");
+            }
+            if (!seenObj.add(in.objectiveId())) {
+                throw new BusinessRuleException("O" + o.getNumber() + " is assessed twice");
+            }
+            ReviewObjectiveAssessment a = currentObj.computeIfAbsent(in.objectiveId(),
+                    id -> new ReviewObjectiveAssessment(r.getId(), id));
+            a.assess(in.outcome(), in.evidence());
+            objectiveAssessments.save(a);
+        }
+        // Drafts for objectives withdrawn since they were saved drop out.
+        List<ReviewObjectiveAssessment> stale = currentObj.values().stream()
+                .filter(a -> !objectiveById.containsKey(a.getObjectiveId())
+                        || objectiveById.get(a.getObjectiveId()).getStatus() != ObjectiveStatus.ACTIVE)
+                .toList();
+        stale.forEach(a -> currentObj.remove(a.getObjectiveId()));
+        objectiveAssessments.deleteAll(stale);
+        r.objectivesMetFromObjectives(ObjectiveRules.overall(
+                currentObj.values().stream().map(ReviewObjectiveAssessment::getOutcome).toList()));
         if (complete) {
+            List<String> missingObj = objectiveById.values().stream()
+                    .filter(o -> o.getStatus() == ObjectiveStatus.ACTIVE && !currentObj.containsKey(o.getId()))
+                    .sorted(Comparator.comparingInt(ProjectObjective::getNumber)).map(o -> "O" + o.getNumber())
+                    .toList();
+            if (!missingObj.isEmpty()) {
+                throw new BusinessRuleException("Say whether each objective was met before completing the review: "
+                        + String.join(", ", missingObj));
+            }
+            currentObj.values().forEach(a -> a.freeze(objectiveById.get(a.getObjectiveId()).getStatement()));
             List<String> missing = list.stream().filter(b -> b.getStatus() != BenefitStatus.CANCELLED)
                     .filter(b -> !current.containsKey(b.getId())).map(b -> "B" + b.getNumber()).toList();
             if (!missing.isEmpty()) {
@@ -348,7 +400,8 @@ public class BenefitService {
             r.complete(me.getId(), now);
             audit.record(tenantId, "benefit.review_completed", "Project", projectId,
                     JsonText.object("title", r.getTitle(), "conductedOn", r.getConductedOn(), "objectivesMet",
-                            r.getObjectivesMet(), "benefits", current.size()));
+                            r.getObjectivesMet(), "benefits", current.size(), "objectives",
+                            objectiveOutcomes(objectiveById, currentObj)));
             Set<UUID> tell = new HashSet<>(currentUser.withRole(tenantId, Roles.PMO_LEAD).stream().map(User::getId)
                     .toList());
             tell.remove(me.getId());
@@ -358,7 +411,7 @@ public class BenefitService {
                     link(p)));
         } else {
             audit.record(tenantId, "benefit.review_saved", "Project", projectId,
-                    JsonText.object("title", r.getTitle(), "benefits", seen.size()));
+                    JsonText.object("title", r.getTitle(), "benefits", seen.size(), "objectives", seenObj.size()));
         }
         return projectView(p, me);
     }
@@ -437,14 +490,19 @@ public class BenefitService {
 
     /** Per-request lookups shared by the views. */
     private record Ctx(Map<UUID, List<Measurement>> measurements, Map<UUID, List<ReviewAssessment>> assessments,
+            Map<UUID, List<ReviewObjectiveAssessment>> objectiveAssessments, Map<UUID, ProjectObjective> objectives,
             Map<UUID, Benefit> benefits, Map<UUID, User> people, LocalDate today) {
     }
 
-    private Ctx context(UUID tenantId, List<Benefit> list, List<Review> rs, User me) {
+    private Ctx context(UUID tenantId, List<Benefit> list, List<Review> rs, User me,
+            Map<UUID, ProjectObjective> objectiveMap) {
         Map<UUID, List<Measurement>> ms = measurementsOf(tenantId, list);
         Map<UUID, List<ReviewAssessment>> as = rs.isEmpty() ? Map.of()
                 : assessments.findByReviewIdIn(rs.stream().map(Review::getId).toList()).stream()
                         .collect(Collectors.groupingBy(ReviewAssessment::getReviewId));
+        Map<UUID, List<ReviewObjectiveAssessment>> oas = rs.isEmpty() ? Map.of()
+                : objectiveAssessments.findByReviewIdIn(rs.stream().map(Review::getId).toList()).stream()
+                        .collect(Collectors.groupingBy(ReviewObjectiveAssessment::getReviewId));
         Set<UUID> ids = new HashSet<>();
         list.forEach(b -> {
             ids.add(b.getOwnerId());
@@ -455,7 +513,7 @@ public class BenefitService {
             ids.add(r.getLeadId());
             ids.add(r.getCompletedBy());
         });
-        return new Ctx(ms, as, list.stream().collect(Collectors.toMap(Benefit::getId, Function.identity())),
+        return new Ctx(ms, as, oas, objectiveMap, list.stream().collect(Collectors.toMap(Benefit::getId, Function.identity())),
                 people(tenantId, ids), today());
     }
 
@@ -463,12 +521,17 @@ public class BenefitService {
         UUID tenantId = p.getTenantId();
         List<Benefit> list = benefits.findByTenantIdAndProjectIdOrderByNumberAsc(tenantId, p.getId());
         List<Review> rs = reviews.findByTenantIdAndProjectIdOrderByDueDateAsc(tenantId, p.getId());
-        Ctx ctx = context(tenantId, list, rs, me);
+        List<ProjectObjective> os = objectives.list(tenantId, p.getId());
+        Ctx ctx = context(tenantId, list, rs, me,
+                os.stream().collect(Collectors.toMap(ProjectObjective::getId, Function.identity())));
         List<BenefitView> views = list.stream().map(b -> benefitView(b, p, ctx, me)).toList();
+        List<ObjectiveRef> active = os.stream().filter(o -> o.getStatus() == ObjectiveStatus.ACTIVE)
+                .map(o -> new ObjectiveRef(o.getId(), o.getNumber(), o.getStatement(), o.getSuccessMeasure()))
+                .toList();
         boolean editor = isEditor(me) && p.getStatus() != ProjectStatus.CANCELLED;
         return new ProjectBenefitsView(p.getId(), closeout.acceptedHandoverDate(tenantId, p.getId()).orElse(null),
                 summary(views, rs.stream().filter(r -> r.getStatus() == ReviewStatus.PLANNED).toList()), views,
-                rs.stream().map(r -> reviewView(r, p, ctx, me)).toList(), new Permissions(editor, editor));
+                rs.stream().map(r -> reviewView(r, p, ctx, me)).toList(), active, new Permissions(editor, editor));
     }
 
     private BenefitView benefitView(Benefit b, Project p, Ctx ctx, User me) {
@@ -511,13 +574,22 @@ public class BenefitService {
                             a.getActualValue(), a.getMeasuredOn(), a.getProgressPct(), a.getRating(), a.getComment());
                 })
                 .sorted(Comparator.comparingInt(AssessmentView::benefitNumber)).toList();
+        List<ObjectiveAssessmentView> ov = ctx.objectiveAssessments().getOrDefault(r.getId(), List.of()).stream()
+                .filter(a -> ctx.objectives().containsKey(a.getObjectiveId()))
+                .map(a -> {
+                    ProjectObjective o = ctx.objectives().get(a.getObjectiveId());
+                    return new ObjectiveAssessmentView(o.getId(), o.getNumber(),
+                            a.getStatement() != null ? a.getStatement() : o.getStatement(), a.getOutcome(),
+                            a.getEvidence());
+                })
+                .sorted(Comparator.comparingInt(ObjectiveAssessmentView::objectiveNumber)).toList();
         boolean planned = r.getStatus() == ReviewStatus.PLANNED;
         boolean editor = isEditor(me);
         boolean lead = me.getId().equals(r.getLeadId());
         return new ReviewView(r.getId(), projectRef(p, r.getProjectId()), r.getTitle(), r.getDueDate(),
                 ref(ctx.people(), r.getLeadId()), r.getStatus(), r.getConductedOn(), r.getObjectivesMet(),
                 r.getSummary(), r.getRecommendations(), r.getCancelNote(), ref(ctx.people(), r.getCompletedBy()),
-                r.getCompletedAt(), planned && r.getDueDate().isBefore(ctx.today()), av, planned && editor,
+                r.getCompletedAt(), planned && r.getDueDate().isBefore(ctx.today()), av, ov, planned && editor,
                 planned && (editor || lead), planned && editor, r.getVersion());
     }
 
@@ -556,6 +628,22 @@ public class BenefitService {
     }
 
     // ================================================================== helpers
+
+    /** The objectives of the projects these reviews belong to, by id. */
+    private Map<UUID, ProjectObjective> objectivesOf(UUID tenantId, Collection<Review> rs) {
+        Map<UUID, ProjectObjective> out = new java.util.HashMap<>();
+        rs.stream().map(Review::getProjectId).distinct()
+                .forEach(pid -> objectives.list(tenantId, pid).forEach(o -> out.put(o.getId(), o)));
+        return out;
+    }
+
+    /** For the audit record: "O1 MET, O2 PARTLY_MET". */
+    private static String objectiveOutcomes(Map<UUID, ProjectObjective> byId,
+            Map<UUID, ReviewObjectiveAssessment> as) {
+        return as.values().stream().sorted(Comparator.comparingInt(a -> byId.get(a.getObjectiveId()).getNumber()))
+                .map(a -> "O" + byId.get(a.getObjectiveId()).getNumber() + " " + a.getOutcome())
+                .collect(Collectors.joining(", "));
+    }
 
     private Map<UUID, List<Measurement>> measurementsOf(UUID tenantId, Collection<Benefit> list) {
         if (list.isEmpty()) {

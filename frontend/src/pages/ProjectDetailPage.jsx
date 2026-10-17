@@ -40,6 +40,7 @@ import IssuesTab from './execution/IssuesTab.jsx';
 import ReportsTab from './execution/ReportsTab.jsx';
 import CloseoutTab from './closeout/CloseoutTab.jsx';
 import BenefitsTab from './benefits/BenefitsTab.jsx';
+import ObjectivesCard from './ObjectivesCard.jsx';
 
 const PROJECT_TABS = [
   ['overview', 'Overview'],
@@ -56,6 +57,12 @@ import { formatMoney } from '../utils/money.js';
 const ACTION_LABELS = {
   'project.created': 'Project created',
   'project.gate.passed': 'Gate passed',
+  'project.objectives_set': 'Objectives listed',
+  'project.objective_added': 'Objective added',
+  'project.objective_changed': 'Objective changed',
+  'project.objective_withdrawn': 'Objective withdrawn',
+  'project.objective_reinstated': 'Objective reinstated',
+  'project.objective_deleted': 'Objective deleted',
 };
 
 function Field({ label, children }) {
@@ -239,6 +246,7 @@ export default function ProjectDetailPage() {
               <Field label="Description">{project.description}</Field>
             </CardContent>
           </Card>
+          <ObjectivesCard projectId={project.id} />
           <ProjectRequisitions projectId={project.id} />
           <ProjectContracts project={project} />
         </Grid>
@@ -257,13 +265,13 @@ export default function ProjectDetailPage() {
                   return (
                     <ListItem key={h.hash} disableGutters divider>
                       <ListItemText
-                        primary={`${ACTION_LABELS[h.action] ?? h.action}${detail.gate ? ` ${detail.gate}` : ''}`}
+                        primary={`${ACTION_LABELS[h.action] ?? h.action}${detail.gate ? ` ${detail.gate}` : ''}${detail.objective ? ` ${detail.objective}` : ''}`}
                         secondary={
                           <>
                             {new Date(h.occurredAt).toLocaleString('en-KE')} · {h.actor}
-                            {detail.note && (
+                            {(detail.note || detail.reason) && (
                               <Box component="span" sx={{ display: 'block' }}>
-                                {detail.note}
+                                {detail.note || detail.reason}
                               </Box>
                             )}
                           </>

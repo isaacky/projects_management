@@ -27,15 +27,17 @@ import { PHASES, phaseLabel } from '../../domain/lifecycle.js';
 import { formatDateTime } from '../../domain/tenders.js';
 import { MetaChip } from './CloseoutParts.jsx';
 
-export function LessonDialog({ projectId, lesson, onClose }) {
+/** lesson: the lesson being edited; draft: starting values for a new one (e.g. from a review finding). */
+export function LessonDialog({ projectId, lesson, draft, onClose }) {
   const save = useSaveLesson();
+  const start = lesson ?? draft;
   const [f, setF] = useState({
-    kind: lesson?.kind ?? 'IMPROVE',
-    category: lesson?.category ?? 'PROCUREMENT',
-    phase: lesson?.phase ?? '',
-    title: lesson?.title ?? '',
-    whatHappened: lesson?.whatHappened ?? '',
-    recommendation: lesson?.recommendation ?? '',
+    kind: start?.kind ?? 'IMPROVE',
+    category: start?.category ?? 'PROCUREMENT',
+    phase: start?.phase ?? '',
+    title: start?.title ?? '',
+    whatHappened: start?.whatHappened ?? '',
+    recommendation: start?.recommendation ?? '',
   });
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
   return (
@@ -133,7 +135,12 @@ export function LessonDialog({ projectId, lesson, onClose }) {
   );
 }
 
-LessonDialog.propTypes = { projectId: PropTypes.string.isRequired, lesson: PropTypes.object, onClose: PropTypes.func.isRequired };
+LessonDialog.propTypes = {
+  projectId: PropTypes.string.isRequired,
+  lesson: PropTypes.object,
+  draft: PropTypes.object,
+  onClose: PropTypes.func.isRequired,
+};
 
 function ReviewDialog({ lesson, onClose }) {
   const review = useReviewLesson();
