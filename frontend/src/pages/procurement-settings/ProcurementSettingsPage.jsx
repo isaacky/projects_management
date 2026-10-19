@@ -30,10 +30,7 @@ export default function ProcurementSettingsPage() {
         title="Procurement settings"
         subtitle="Methods, approval limits, committee rules and evaluation criteria for this organisation. Every change is recorded in the audit log."
       />
-      <Alert severity="info" sx={{ mb: 2 }}>
-        Confirm these values against your procurement policy and the PPADA 2015 regulations before
-        live use. The sample values loaded in development are placeholders.
-      </Alert>
+
       {me && !canEdit && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           You can view these settings. Only the head of procurement can change them.

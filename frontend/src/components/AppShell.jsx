@@ -137,7 +137,7 @@ export default function AppShell({ children }) {
             </IconButton>
           )}
           <Typography variant="subtitle1" sx={{ flexGrow: 1, ml: isDesktop ? 0 : 1 }}>
-            Kenya Power (pilot)
+            Kenya Power
           </Typography>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             {DEV_MODE && (
