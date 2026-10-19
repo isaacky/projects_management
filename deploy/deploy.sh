@@ -19,7 +19,20 @@ for s in PMP_DB_MIGRATION_PASSWORD PMP_DB_APP_PASSWORD PMP_DB_ANALYTICS_PASSWORD
   docker secret inspect "$s" >/dev/null 2>&1 || { echo "secret $s missing: run ./create-secrets.sh" >&2; missing=1; }
 done
 [ "$missing" = 0 ] || exit 1
-mkdir -p "${PMP_TLS_DIR:-/srv/pmp-tls}"
+tls_dir="${PMP_TLS_DIR:-/srv/pmp-tls}"
+if [ ! -d "$tls_dir" ]; then
+  mkdir -p "$tls_dir" 2>/dev/null || {
+    echo "Cannot create $tls_dir (the certificates folder). Create it once with:" >&2
+    echo "  sudo mkdir -p $tls_dir && sudo chown \$(id -u):\$(id -g) $tls_dir" >&2
+    exit 1
+  }
+fi
+
+if [ "${PMP_TLS_RESOLVER-le}" = "" ]; then
+  for f in pmp.crt pmp.key certificates.yml; do
+    [ -f "$tls_dir/$f" ] || { echo "PMP_TLS_RESOLVER is empty (corporate certificate) but $tls_dir/$f is missing" >&2; exit 1; }
+  done
+fi
 
 docker stack deploy --with-registry-auth --prune -c stack.yml pmp
 echo "Deployed pmp ${PMP_VERSION}. Watch it come up: docker stack ps pmp"

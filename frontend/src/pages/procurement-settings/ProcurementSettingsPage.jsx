@@ -30,7 +30,6 @@ export default function ProcurementSettingsPage() {
         title="Procurement settings"
         subtitle="Methods, approval limits, committee rules and evaluation criteria for this organisation. Every change is recorded in the audit log."
       />
-
       {me && !canEdit && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           You can view these settings. Only the head of procurement can change them.

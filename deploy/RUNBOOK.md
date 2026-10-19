@@ -25,7 +25,7 @@ docker node update --label-add pmp.db=true <node>
 docker node update --label-add pmp.storage=true <node>
 ```
 
-**DNS and certificates.** Point the host name (for example `pmp.kplc.co.ke`) at the manager. With
+**DNS and certificates.** Point the host name (for example `foa.kplc.co.ke`) at the manager. With
 Let's Encrypt, ports 80 and 443 must be reachable from the internet; otherwise see section 7.
 
 **Settings.**
@@ -194,10 +194,26 @@ not needed for the pilot. Network: the Keycloak container must reach the domain 
 
 ## 7. Certificates
 
-Default: Let's Encrypt via Traefik (`PMP_ACME_EMAIL`). For an internal-only host with a corporate
-certificate: put `pmp.crt` (full chain), `pmp.key` and `traefik/certificates.yml.example` (as
-`certificates.yml`) in `PMP_TLS_DIR` on the manager, delete the `tls.certresolver` labels from
-`stack.yml` and replace each with `traefik.http.routers.<name>.tls=true`, then `./deploy.sh`.
+Default: Let's Encrypt via Traefik (`PMP_ACME_EMAIL`), which only works when the host name is
+reachable from the internet. Until a certificate is in place, browsers show "Not secure" because
+Traefik serves its own self-signed one.
+
+For an internal host with a corporate certificate:
+
+1. Make a key and a certificate request on the manager, and send the `.csr` to ICT (keep the key
+   on the server):
+   ```sh
+   cd /srv/pmp-tls
+   openssl req -new -newkey rsa:2048 -nodes -keyout pmp.key -out pmp.csr \
+     -subj "/CN=foa.kplc.co.ke" -addext "subjectAltName=DNS:foa.kplc.co.ke"
+   chmod 600 pmp.key
+   ```
+2. Save the issued certificate followed by the intermediate certificate(s) as `pmp.crt` (full
+   chain, PEM), and copy `traefik/certificates.yml.example` there as `certificates.yml`.
+3. In `pmp.env` set `PMP_TLS_RESOLVER=` (empty), then `./deploy.sh`.
+4. Check: `openssl s_client -connect foa.kplc.co.ke:443 -servername foa.kplc.co.ke </dev/null |
+   openssl x509 -noout -subject -issuer -enddate`. Renew before the end date: replace `pmp.crt`
+   (and the key if reissued); Traefik picks it up without a redeploy.
 
 ## 8. Security notes
 
